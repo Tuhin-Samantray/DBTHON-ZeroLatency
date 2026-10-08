@@ -1,4 +1,4 @@
-﻿import time
+import time
 import requests
 import psycopg
 
@@ -19,6 +19,7 @@ def parse_metrics(text):
             continue
 
         parts = line.split()
+
         if len(parts) != 2:
             continue
 
@@ -57,18 +58,29 @@ def collect_node(node_id, region, url):
 
     metrics = parse_metrics(response.text)
 
-    cpu = get_value(metrics, "admission_elastic_cpu_utilization")
+    cpu = get_value(
+        metrics,
+        "admission_elastic_cpu_utilization"
+    )
+
     sql_queue = get_value(
         metrics,
         "admission_wait_queue_length_sql_sql_response"
     )
+
     network_rtt = get_histogram_average_ms(
         metrics,
         "round_trip_latency"
     )
+
     replication_latency = get_histogram_average_ms(
         metrics,
         "raft_replication_latency"
+    )
+
+    txn_contention = get_value(
+        metrics,
+        "sql_txn_contended_count"
     )
 
     return (
@@ -78,6 +90,7 @@ def collect_node(node_id, region, url):
         sql_queue,
         network_rtt,
         replication_latency,
+        txn_contention
     )
 
 
@@ -86,11 +99,28 @@ def main():
 
     print("COLLECTOR_STARTED")
 
+    previous_contention = {}
+
     try:
         while True:
             for node_id, (region, url) in NODES.items():
                 try:
                     row = collect_node(node_id, region, url)
+
+                    current_contention = row[6]
+                    previous = previous_contention.get(node_id)
+
+                    if current_contention is not None and previous is not None:
+                        contention_delta = max(
+                            0,
+                            current_contention - previous
+                        )
+                    else:
+                        contention_delta = 0
+
+                    previous_contention[node_id] = current_contention
+
+                    row = row[:6] + (contention_delta,)
 
                     with conn.cursor() as cur:
                         cur.execute(
@@ -102,9 +132,10 @@ def main():
                                 cpu_util,
                                 sql_queue,
                                 network_rtt_ms,
-                                replication_lag_ms
+                                replication_lag_ms,
+                                txn_contention_count
                             )
-                            VALUES (%s, %s, %s, %s, %s, %s)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
                             """,
                             row,
                         )
@@ -117,7 +148,8 @@ def main():
                         f"cpu={row[2]} "
                         f"queue={row[3]} "
                         f"rtt_ms={row[4]} "
-                        f"repl_ms={row[5]}"
+                        f"repl_ms={row[5]} "
+                        f"contention={row[6]}"
                     )
 
                 except Exception as e:
