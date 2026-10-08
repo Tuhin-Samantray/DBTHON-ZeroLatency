@@ -1,0 +1,1 @@
+{"name":"crdb2-proxy","listen":"0.0.0.0:26268","upstream":"crdb2:26257"}

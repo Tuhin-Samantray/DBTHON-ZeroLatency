@@ -1,0 +1,73 @@
+services:
+
+  crdb1:
+    image: cockroachdb/cockroach:v24.3.0
+    container_name: crdb1
+    command: start --insecure --join=crdb1:26257,crdb2:26257,crdb3:26257 --listen-addr=0.0.0.0:26257 --advertise-addr=crdb1:26257 --http-addr=0.0.0.0:8080 --locality=region=us-east --cache=256MiB --max-sql-memory=256MiB
+    ports:
+      - "26257:26257"
+      - "8080:8080"
+    volumes:
+      - crdb1-data:/cockroach/cockroach-data
+    mem_limit: 1536m
+    cpus: 2
+
+  crdb2:
+    image: cockroachdb/cockroach:v24.3.0
+    container_name: crdb2
+    command: start --insecure --join=crdb1:26257,crdb2:26257,crdb3:26257 --listen-addr=0.0.0.0:26257 --advertise-addr=crdb2:26257 --http-addr=0.0.0.0:8080 --locality=region=eu-west --cache=256MiB --max-sql-memory=256MiB
+    ports:
+      - "26258:26257"
+      - "8081:8080"
+    volumes:
+      - crdb2-data:/cockroach/cockroach-data
+    mem_limit: 1536m
+    cpus: 2
+
+  crdb3:
+    image: cockroachdb/cockroach:v24.3.0
+    container_name: crdb3
+    command: start --insecure --join=crdb1:26257,crdb2:26257,crdb3:26257 --listen-addr=0.0.0.0:26257 --advertise-addr=crdb3:26257 --http-addr=0.0.0.0:8080 --locality=region=ap-south --cache=256MiB --max-sql-memory=256MiB
+    ports:
+      - "26259:26257"
+      - "8082:8080"
+    volumes:
+      - crdb3-data:/cockroach/cockroach-data
+    mem_limit: 1536m
+    cpus: 2
+
+  crdb-init:
+    image: cockroachdb/cockroach:v24.3.0
+    container_name: crdb-init
+    depends_on:
+      - crdb1
+      - crdb2
+      - crdb3
+    command: init --insecure --host=crdb1:26257
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: toxiproxy
+    ports:
+      - "8474:8474"
+      - "26267:26257"
+      - "26268:26258"
+      - "26269:26259"
+
+  metrics-db:
+    image: postgres:16
+    container_name: metrics-db
+    environment:
+      POSTGRES_USER: zerolatency
+      POSTGRES_PASSWORD: zerolatency
+      POSTGRES_DB: metrics
+    ports:
+      - "5432:5432"
+    volumes:
+      - metrics-db-data:/var/lib/postgresql/data
+
+volumes:
+  crdb1-data:
+  crdb2-data:
+  crdb3-data:
+  metrics-db-data:
